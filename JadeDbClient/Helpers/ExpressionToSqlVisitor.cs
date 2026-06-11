@@ -130,6 +130,35 @@ internal class ExpressionToSqlVisitor<T> : ExpressionVisitor
                     return node;
             }
         }
+        else if (node.Method.DeclaringType == typeof(Enumerable) && node.Method.Name == nameof(Enumerable.Contains))
+        {
+            // Handles `new[] { "A", "B" }.Contains(x.Status)`
+            var valuesExpr = node.Arguments[0];
+            var propertyExpr = node.Arguments[1];
+
+            Visit(propertyExpr); // The property
+            _sql.Append(" IN (");
+
+            var rawValues = (IEnumerable)Expression.Lambda(valuesExpr).Compile().DynamicInvoke()!;
+            var values = rawValues.Cast<object?>().ToList();
+
+            if (values.Count == 0)
+            {
+                _sql.Append("1=0)"); // Empty IN() is a SQL syntax error
+                return node;
+            }
+
+            var paramNames = new List<string>();
+            foreach (var val in values)
+            {
+                var paramName = AddParameter(val, valuesExpr.Type.GetElementType() ?? valuesExpr.Type.GenericTypeArguments[0]);
+                paramNames.Add(paramName);
+            }
+
+            _sql.Append(string.Join(", ", paramNames));
+            _sql.Append(')');
+            return node;
+        }
 
         // Handle null checks (x.Prop == null)
         if (node.Method.Name == "op_Equality" && node.Arguments[1] is ConstantExpression constExpr && constExpr.Value == null)
@@ -146,27 +175,29 @@ internal class ExpressionToSqlVisitor<T> : ExpressionVisitor
             return node;
         }
 
-        // Handle custom In extension method
+        // Handle custom In extension method: x.Status.In(new[] { "A", "B" })
         if (node.Method.Name == nameof(QueryExtensions.In) && node.Method.IsStatic)
         {
+            var propertyExpr = node.Arguments[0];
             var valuesExpr = node.Arguments[1];
+            
+            Visit(propertyExpr); // The property
+            _sql.Append(" IN (");
+
             var rawValues = (IEnumerable)Expression.Lambda(valuesExpr).Compile().DynamicInvoke()!;
             var values = rawValues.Cast<object?>().ToList();
 
             if (values.Count == 0)
             {
                 // Empty IN() is a SQL syntax error; use always-false predicate instead
-                _sql.Append("1=0");
+                _sql.Append("1=0)");
                 return node;
             }
-
-            Visit(node.Arguments[0]); // the property
-            _sql.Append(" IN (");
 
             var paramNames = new List<string>();
             foreach (var val in values)
             {
-                var paramName = AddParameter(val, valuesExpr.Type.GenericTypeArguments[0]);
+                var paramName = AddParameter(val, valuesExpr.Type.GetElementType() ?? valuesExpr.Type.GenericTypeArguments[0]);
                 paramNames.Add(paramName);
             }
 
