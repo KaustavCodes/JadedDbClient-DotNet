@@ -163,10 +163,14 @@ internal class ExpressionToSqlVisitor<T> : ExpressionVisitor
             Visit(node.Arguments[0]); // the property
             _sql.Append(" IN (");
 
+            var elementType = node.Method.GetGenericArguments()[0];
             var paramNames = new List<string>();
             foreach (var val in values)
             {
-                var paramName = AddParameter(val, valuesExpr.Type.GenericTypeArguments[0]);
+                var paramName = $"@p{_paramCounter++}";
+                var dbType = InferDbType(elementType);
+                var param = _dbService.GetParameter(paramName, val ?? DBNull.Value, dbType);
+                _parameters.Add(param);
                 paramNames.Add(paramName);
             }
 

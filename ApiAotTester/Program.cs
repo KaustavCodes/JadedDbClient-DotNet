@@ -171,6 +171,213 @@ app.MapGet("/test-query-showcase", (IDatabaseService dbConfig) =>
     });
 });
 
+// ── IN-list filter tests: pass a List/array to .In(values) ──
+app.MapGet("/test-query-in-list", (IDatabaseService dbConfig) =>
+{
+    static string FormatParams(IEnumerable<IDbDataParameter> ps) =>
+        string.Join(", ", ps.Select(p => $"{p.ParameterName}={p.Value} ({p.DbType})"));
+
+    var entries = new List<QueryShowcaseEntry>();
+    var ids = new List<int> { 1, 5, 10 };
+    var emptyIds = new List<int>();
+    var statuses = new[] { "active", "shipped", "pending" };
+
+    var (sql, prms) = new QueryBuilder<ShowcaseOrder>(dbConfig)
+        .Where(o => o.CustomerId.In(ids))
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("1. IN – non-empty List<int>", sql, FormatParams(prms)));
+
+    (sql, prms) = new QueryBuilder<ShowcaseOrder>(dbConfig)
+        .Where(o => o.CustomerId.In(emptyIds))
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("2. IN – empty list (generates 1=0, not IN ())", sql, FormatParams(prms)));
+
+    (sql, prms) = new QueryBuilder<ShowcaseOrder>(dbConfig)
+        .Where(o => o.Status.In(statuses))
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("3. IN – string array", sql, FormatParams(prms)));
+
+    (sql, prms) = new QueryBuilder<ShowcaseOrder>(dbConfig)
+        .Where(o => o.CustomerId.In(ids) && o.Status.In(statuses))
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("4. IN – combined with AND", sql, FormatParams(prms)));
+
+    return Results.Ok(new QueryShowcaseResponse
+    {
+        Dialect = dbConfig.Dialect.ToString(),
+        TotalQueries = entries.Count,
+        Queries = entries
+    });
+});
+
+app.MapGet("/test-query-in-list-execute", async (IDatabaseService dbConfig) =>
+{
+    var ids = new List<int> { 1, 2, 3 };
+    var emptyIds = new List<int>();
+
+    var nonEmptyResults = await new QueryBuilder<DataModel>(dbConfig)
+        .Where(d => d.Id.In(ids))
+        .ToListAsync();
+
+    var emptyResults = await new QueryBuilder<DataModel>(dbConfig)
+        .Where(d => d.Id.In(emptyIds))
+        .ToListAsync();
+
+    var (emptySql, _) = new QueryBuilder<DataModel>(dbConfig)
+        .Where(d => d.Id.In(emptyIds))
+        .BuildSelect();
+
+    return Results.Ok(new InListExecuteResponse
+    {
+        Dialect = dbConfig.Dialect.ToString(),
+        FilterIds = ids,
+        NonEmptyMatchCount = nonEmptyResults.Count(),
+        NonEmptyMatches = nonEmptyResults,
+        EmptyListMatchCount = emptyResults.Count(),
+        EmptyListSqlContainsAlwaysFalse = emptySql.Contains("1=0", StringComparison.Ordinal),
+        EmptyListSqlAvoidsInvalidIn = !emptySql.Contains("IN ()", StringComparison.Ordinal)
+    });
+});
+
+app.MapGet("/test-query-in-list-mssql", async (IJadeDbServiceFactory dbFactory) =>
+{
+    var dbConfig = dbFactory.GetService("mssql");
+
+    static string FormatParams(IEnumerable<IDbDataParameter> ps) =>
+        string.Join(", ", ps.Select(p => $"{p.ParameterName}={p.Value} ({p.DbType})"));
+
+    var entries = new List<QueryShowcaseEntry>();
+    var ids = new List<int> { 1, 5, 10 };
+    var emptyIds = new List<int>();
+    var statuses = new[] { "active", "shipped", "pending" };
+
+    var (sql, prms) = new QueryBuilder<ShowcaseOrder>(dbConfig)
+        .Where(o => o.CustomerId.In(ids))
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("1. IN – non-empty List<int>", sql, FormatParams(prms)));
+
+    (sql, prms) = new QueryBuilder<ShowcaseOrder>(dbConfig)
+        .Where(o => o.CustomerId.In(emptyIds))
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("2. IN – empty list (generates 1=0, not IN ())", sql, FormatParams(prms)));
+
+    (sql, prms) = new QueryBuilder<ShowcaseOrder>(dbConfig)
+        .Where(o => o.Status.In(statuses))
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("3. IN – string array", sql, FormatParams(prms)));
+
+    (sql, prms) = new QueryBuilder<ShowcaseOrder>(dbConfig)
+        .Where(o => o.CustomerId.In(ids) && o.Status.In(statuses))
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("4. IN – combined with AND", sql, FormatParams(prms)));
+
+    return Results.Ok(new QueryShowcaseResponse
+    {
+        Dialect = dbConfig.Dialect.ToString(),
+        TotalQueries = entries.Count,
+        Queries = entries
+    });
+});
+
+app.MapGet("/test-query-in-list-execute-mssql", async (IJadeDbServiceFactory dbFactory) =>
+{
+    var dbConfig = dbFactory.GetService("mssql");
+    var ids = new List<int> { 1, 2, 3 };
+    var emptyIds = new List<int>();
+
+    var nonEmptyResults = await new QueryBuilder<DataModel>(dbConfig)
+        .Where(d => d.Id.In(ids))
+        .ToListAsync();
+
+    var emptyResults = await new QueryBuilder<DataModel>(dbConfig)
+        .Where(d => d.Id.In(emptyIds))
+        .ToListAsync();
+
+    var (emptySql, _) = new QueryBuilder<DataModel>(dbConfig)
+        .Where(d => d.Id.In(emptyIds))
+        .BuildSelect();
+
+    return Results.Ok(new InListExecuteResponse
+    {
+        Dialect = dbConfig.Dialect.ToString(),
+        FilterIds = ids,
+        NonEmptyMatchCount = nonEmptyResults.Count(),
+        NonEmptyMatches = nonEmptyResults,
+        EmptyListMatchCount = emptyResults.Count(),
+        EmptyListSqlContainsAlwaysFalse = emptySql.Contains("1=0", StringComparison.Ordinal),
+        EmptyListSqlAvoidsInvalidIn = !emptySql.Contains("IN ()", StringComparison.Ordinal)
+    });
+});
+
+app.MapGet("/test-query-in-list-mysql", async (IJadeDbServiceFactory dbFactory) =>
+{
+    var dbConfig = dbFactory.GetService("mysql");
+
+    static string FormatParams(IEnumerable<IDbDataParameter> ps) =>
+        string.Join(", ", ps.Select(p => $"{p.ParameterName}={p.Value} ({p.DbType})"));
+
+    var entries = new List<QueryShowcaseEntry>();
+    var ids = new List<int> { 1, 5, 10 };
+    var emptyIds = new List<int>();
+    var statuses = new[] { "active", "shipped", "pending" };
+
+    var (sql, prms) = new QueryBuilder<ShowcaseOrder>(dbConfig)
+        .Where(o => o.CustomerId.In(ids))
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("1. IN – non-empty List<int>", sql, FormatParams(prms)));
+
+    (sql, prms) = new QueryBuilder<ShowcaseOrder>(dbConfig)
+        .Where(o => o.CustomerId.In(emptyIds))
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("2. IN – empty list (generates 1=0, not IN ())", sql, FormatParams(prms)));
+
+    (sql, prms) = new QueryBuilder<ShowcaseOrder>(dbConfig)
+        .Where(o => o.Status.In(statuses))
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("3. IN – string array", sql, FormatParams(prms)));
+
+    (sql, prms) = new QueryBuilder<ShowcaseOrder>(dbConfig)
+        .Where(o => o.CustomerId.In(ids) && o.Status.In(statuses))
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("4. IN – combined with AND", sql, FormatParams(prms)));
+
+    return Results.Ok(new QueryShowcaseResponse
+    {
+        Dialect = dbConfig.Dialect.ToString(),
+        TotalQueries = entries.Count,
+        Queries = entries
+    });
+});
+
+app.MapGet("/test-query-in-list-execute-mysql", async (IJadeDbServiceFactory dbFactory) =>
+{
+    var dbConfig = dbFactory.GetService("mysql");
+    var ids = new List<int> { 1, 2, 3 };
+    var emptyIds = new List<int>();
+
+    var nonEmptyResults = await new QueryBuilder<DataModel>(dbConfig)
+        .Where(d => d.Id.In(ids))
+        .ToListAsync();
+
+    var emptyResults = await new QueryBuilder<DataModel>(dbConfig)
+        .Where(d => d.Id.In(emptyIds))
+        .ToListAsync();
+
+    var (emptySql, _) = new QueryBuilder<DataModel>(dbConfig)
+        .Where(d => d.Id.In(emptyIds))
+        .BuildSelect();
+
+    return Results.Ok(new InListExecuteResponse
+    {
+        Dialect = dbConfig.Dialect.ToString(),
+        FilterIds = ids,
+        NonEmptyMatchCount = nonEmptyResults.Count(),
+        NonEmptyMatches = nonEmptyResults,
+        EmptyListMatchCount = emptyResults.Count(),
+        EmptyListSqlContainsAlwaysFalse = emptySql.Contains("1=0", StringComparison.Ordinal),
+        EmptyListSqlAvoidsInvalidIn = !emptySql.Contains("IN ()", StringComparison.Ordinal)
+    });
+});
 
 app.MapGet("/test-builder", async (IDatabaseService dbConfig) =>
 {
@@ -859,6 +1066,17 @@ public class QueryShowcaseResponse
     public List<QueryShowcaseEntry> Queries { get; set; } = new();
 }
 
+public class InListExecuteResponse
+{
+    public string Dialect { get; set; } = "";
+    public List<int> FilterIds { get; set; } = new();
+    public int NonEmptyMatchCount { get; set; }
+    public IEnumerable<DataModel> NonEmptyMatches { get; set; } = Array.Empty<DataModel>();
+    public int EmptyListMatchCount { get; set; }
+    public bool EmptyListSqlContainsAlwaysFalse { get; set; }
+    public bool EmptyListSqlAvoidsInvalidIn { get; set; }
+}
+
 [JsonSerializable(typeof(IEnumerable<DataModel>))]
 [JsonSerializable(typeof(List<DataModel>))]
 [JsonSerializable(typeof(DataModel))]
@@ -880,6 +1098,7 @@ public class QueryShowcaseResponse
 [JsonSerializable(typeof(QueryShowcaseEntry))]
 [JsonSerializable(typeof(List<QueryShowcaseEntry>))]
 [JsonSerializable(typeof(QueryShowcaseResponse))]
+[JsonSerializable(typeof(InListExecuteResponse))]
 [JsonSerializable(typeof(MultipleDbResult))]
 internal partial class AppJsonSerializerContext : JsonSerializerContext
 {

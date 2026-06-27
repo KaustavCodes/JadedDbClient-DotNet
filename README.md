@@ -1322,7 +1322,7 @@ warning IL2104: Assembly 'System.Configuration.ConfigurationManager' produced tr
 
 > **This feature is in beta.** Always review and test generated SQL queries in a staging environment before deploying to production.
 
-`QueryBuilder<T>` provides a fluent, type-safe API for building parameterised SELECT, INSERT, UPDATE, and DELETE statements without writing raw SQL. Because queries are generated dynamically at runtime, it is **essential** to validate the generated output before relying on it in production.
+`QueryBuilder<T>` provides a fluent, type-safe API for building parameterised SELECT, INSERT, UPDATE, and DELETE statements without writing raw SQL — including list-based `IN` filters via `.In()`. Because queries are generated dynamically at runtime, it is **essential** to validate the generated output before relying on it in production.
 
 ### Model Setup
 
@@ -1641,6 +1641,48 @@ var (sql, parameters) = new QueryBuilder<Product>(_dbService)
     .BuildDelete();
 ```
 
+### Filtering with `.In()` (list / collection values)
+
+Filter a column against a collection of values using the `In` extension method from `JadeDbClient.Helpers`. Every value is emitted as its own parameter — nothing is inlined into the SQL string.
+
+Supported inputs include `List<T>`, arrays (`int[]`, `string[]`, etc.), and any `IEnumerable<T>` held in a variable.
+
+```csharp
+using JadeDbClient.Helpers;
+
+// List<int>
+var categoryIds = new List<int> { 1, 5, 10 };
+var products = await new QueryBuilder<Product>(_dbService)
+    .Where(p => p.CategoryId.In(categoryIds))
+    .ToListAsync();
+// → SELECT … FROM products WHERE category_id IN (@p0, @p1, @p2)
+
+// string array
+var statuses = new[] { "active", "shipped", "pending" };
+var (sql, parameters) = new QueryBuilder<Order>(_dbService)
+    .Where(o => o.Status.In(statuses))
+    .BuildSelect();
+// → SELECT … FROM orders WHERE Status IN (@p0, @p1, @p2)
+
+// Combined with other WHERE conditions
+var results = await new QueryBuilder<Product>(_dbService)
+    .Where(p => p.CategoryId.In(categoryIds) && p.Price > 10m)
+    .ToListAsync();
+// → WHERE (category_id IN (@p0, @p1, @p2) AND Price > @p3)
+```
+
+**Empty collections:** When the list has no items, the builder generates `1=0` (always-false) instead of invalid `IN ()` syntax. The query returns zero rows safely — useful when the allowed IDs come from user input that may be empty.
+
+```csharp
+var emptyIds = new List<int>();
+var none = await new QueryBuilder<Product>(_dbService)
+    .Where(p => p.CategoryId.In(emptyIds))
+    .ToListAsync();
+// → SELECT … FROM products WHERE 1=0
+```
+
+`.In()` works anywhere `.Where()` is accepted — `BuildSelect`, `ToListAsync`, `CountAsync`, `BuildUpdate`, and `BuildDelete`.
+
 ### Supported WHERE operators
 
 | Expression | Generated SQL |
@@ -1650,7 +1692,7 @@ var (sql, parameters) = new QueryBuilder<Product>(_dbService)
 | `p.Name.Contains("X")` | `product_name LIKE @p0 ESCAPE '~'` |
 | `p.Name.StartsWith("X")` | `product_name LIKE @p0 ESCAPE '~'` |
 | `p.Name.EndsWith("X")` | `product_name LIKE @p0 ESCAPE '~'` |
-| `p.CategoryId.In(ids)` | `category_id IN (@p0, @p1, …)` |
+| `p.CategoryId.In(ids)` | `category_id IN (@p0, @p1, …)` — empty list → `1=0` |
 | `&&` / `\|\|` | `AND` / `OR` |
 | `!` | `NOT (…)` |
 

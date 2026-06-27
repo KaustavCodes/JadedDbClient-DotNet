@@ -229,7 +229,22 @@ public class QueryBuilderSecurityTests
         qb.Where(p => p.CategoryId.In(ids));
         var (sql, parameters) = qb.BuildSelect();
 
-        sql.Should().Contain(" IN (");
+        sql.Should().Contain(" IN (@p0, @p1, @p2)");
+        sql.Should().NotContain("@p0@p1");
         new List<IDbDataParameter>(parameters).Should().HaveCount(3);
+    }
+
+    [Fact]
+    public void Where_InWithStringArray_GeneratesInClause()
+    {
+        var svc = CreateMockService();
+        var qb = new QueryBuilder<Product>(svc.Object);
+        var statuses = new[] { "active", "shipped" };
+
+        qb.Where(p => p.Name.In(statuses));
+        var (sql, parameters) = qb.BuildSelect();
+
+        sql.Should().Contain(" IN (@p0, @p1)");
+        new List<IDbDataParameter>(parameters).Should().HaveCount(2);
     }
 }
