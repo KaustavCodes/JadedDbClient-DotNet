@@ -42,9 +42,23 @@ jobs:
 
       - name: NuGet login (OIDC)
         id: nuget_login
+        continue-on-error: true
         uses: NuGet/login@v1
         with:
-          user: KaustavCodes
+          user: ${{ secrets.NUGET_TRUSTED_PUBLISHING_USER || 'KaustavCodes' }}
 
       - name: Publish to NuGet.org (Trusted Publishing)
+        if: steps.nuget_login.outcome == 'success'
         run: dotnet nuget push ./nupkg/*.nupkg -s https://api.nuget.org/v3/index.json -k ${{ steps.nuget_login.outputs.NUGET_API_KEY }} --skip-duplicate
+
+      - name: Publish to NuGet.org (API Key fallback)
+        if: steps.nuget_login.outcome != 'success'
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -n "$NUGET_API_KEY" ]; then
+            dotnet nuget push ./nupkg/*.nupkg -s https://api.nuget.org/v3/index.json -k "$NUGET_API_KEY" --skip-duplicate
+          else
+            echo "NuGet trusted publishing failed and NUGET_API_KEY secret is not configured."
+            exit 1
+          fi
