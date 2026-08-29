@@ -1,10 +1,10 @@
-using System.Text.Json.Serialization;
-using Microsoft.AspNetCore.Http.HttpResults;
-using JadeDbClient.Initialize;
-using JadeDbClient.Interfaces;
 using System.Data;
+using System.Text.Json.Serialization;
 using JadeDbClient.Attributes;
 using JadeDbClient.Helpers;
+using JadeDbClient.Initialize;
+using JadeDbClient.Interfaces;
+using Microsoft.AspNetCore.Http.HttpResults;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
@@ -37,11 +37,11 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddJadeDbNamedConnections(
     mapperConfigure: options =>
     {
-        
+
     },
     serviceOptionsConfigure: options =>
     {
-        options.EnableLogging    = true;   // log query timing (default: false)
+        options.EnableLogging = true;   // log query timing (default: false)
         options.LogExecutedQuery = true;   // log executed SQL  (default: false)
     }
 );
@@ -162,6 +162,71 @@ app.MapGet("/test-query-showcase", (IDatabaseService dbConfig) =>
         .Where(o => o.Status == "cancelled")
         .BuildDelete();
     entries.Add(new QueryShowcaseEntry("15. DELETE – with WHERE", sql, FormatParams(prms)));
+
+    return Results.Ok(new QueryShowcaseResponse
+    {
+        Dialect = dbConfig.Dialect.ToString(),
+        TotalQueries = entries.Count,
+        Queries = entries
+    });
+});
+
+// ── String manipulation tests in QueryBuilder ──
+app.MapGet("/stringmanipulation", (IDatabaseService dbConfig) =>
+{
+    static string FormatParams(IEnumerable<IDbDataParameter> ps) =>
+        string.Join(", ", ps.Select(p => $"{p.ParameterName}={p.Value} ({p.DbType})"));
+
+    var entries = new List<QueryShowcaseEntry>();
+    var userInput = "   SAM DOE   ";
+
+    // 1. ToLower on column and constant
+    var (sql, prms) = new QueryBuilder<ShowcaseCustomer>(dbConfig)
+        .Where(c => c.FullName.ToLower() == "SAM".ToLower())
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("1. ToLower() on column & constant", sql, FormatParams(prms)));
+
+    // 2. ToUpper on column
+    (sql, prms) = new QueryBuilder<ShowcaseCustomer>(dbConfig)
+        .Where(c => c.FullName.ToUpper() == "ADMIN")
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("2. ToUpper() on column", sql, FormatParams(prms)));
+
+    // 3. Trim on column
+    (sql, prms) = new QueryBuilder<ShowcaseCustomer>(dbConfig)
+        .Where(c => c.FullName.Trim() == "sam")
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("3. Trim() on column", sql, FormatParams(prms)));
+
+    // 4. TrimStart on column
+    (sql, prms) = new QueryBuilder<ShowcaseCustomer>(dbConfig)
+        .Where(c => c.FullName.TrimStart() == "sam")
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("4. TrimStart() on column", sql, FormatParams(prms)));
+
+    // 5. TrimEnd on column
+    (sql, prms) = new QueryBuilder<ShowcaseCustomer>(dbConfig)
+        .Where(c => c.FullName.TrimEnd() == "sam")
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("5. TrimEnd() on column", sql, FormatParams(prms)));
+
+    // 6. String Length
+    (sql, prms) = new QueryBuilder<ShowcaseCustomer>(dbConfig)
+        .Where(c => c.FullName.Length > 5)
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("6. Length on column", sql, FormatParams(prms)));
+
+    // 7. ToLower with Contains
+    (sql, prms) = new QueryBuilder<ShowcaseCustomer>(dbConfig)
+        .Where(c => c.FullName.ToLower().Contains("sam".ToLower()))
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("7. ToLower().Contains()", sql, FormatParams(prms)));
+
+    // 8. Evaluated local variable / C# method in WHERE
+    (sql, prms) = new QueryBuilder<ShowcaseCustomer>(dbConfig)
+        .Where(c => c.FullName.ToLower() == userInput.Trim().ToLower())
+        .BuildSelect();
+    entries.Add(new QueryShowcaseEntry("8. Evaluated C# variable/method", sql, FormatParams(prms)));
 
     return Results.Ok(new QueryShowcaseResponse
     {
@@ -447,7 +512,7 @@ app.MapGet("/test-postgres-single", async (IDatabaseService dbConfig) =>
 
 app.MapGet("/test-postgres2", async (IJadeDbServiceFactory dbFactory) =>
 {
-    var mainDb    = dbFactory.GetService();    // or dbFactory.GetService() for the default
+    var mainDb = dbFactory.GetService();    // or dbFactory.GetService() for the default
     var reportsDb = dbFactory.GetService("reports");
     //Execute a stored proceude with output parameter
     List<IDbDataParameter> dbDataParameters1 = new List<IDbDataParameter>();

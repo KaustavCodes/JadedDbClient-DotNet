@@ -87,6 +87,19 @@ internal class ExpressionToSqlVisitor<T> : ExpressionVisitor
             return node;
         }
 
+        if (ContainsParameter(node.Expression))
+        {
+            // E.g., x => x.Name.Length
+            if (node.Member.Name == "Length" && node.Expression?.Type == typeof(string))
+            {
+                var lengthFunc = _dialect == DatabaseDialect.MsSql ? "LEN(" : "LENGTH(";
+                _sql.Append(lengthFunc);
+                Visit(node.Expression);
+                _sql.Append(")");
+                return node;
+            }
+        }
+
         // Constant or captured value
         var value = GetValueFromExpression(node);
         AddParameter(value, node.Type);
@@ -101,10 +114,51 @@ internal class ExpressionToSqlVisitor<T> : ExpressionVisitor
 
     protected override Expression VisitMethodCall(MethodCallExpression node)
     {
+        // If the method call does NOT depend on any lambda parameter (e.g. "SAM".ToLower() or myVar.Trim()),
+        // evaluate it in C# and pass as a parameterized value.
+        if (!ContainsParameter(node))
+        {
+            var val = GetValueFromExpression(node);
+            AddParameter(val, node.Type);
+            return node;
+        }
+
         if (node.Method.DeclaringType == typeof(string))
         {
             switch (node.Method.Name)
             {
+                case nameof(string.ToLower):
+                case nameof(string.ToLowerInvariant):
+                    _sql.Append("LOWER(");
+                    Visit(node.Object!);
+                    _sql.Append(")");
+                    return node;
+
+                case nameof(string.ToUpper):
+                case nameof(string.ToUpperInvariant):
+                    _sql.Append("UPPER(");
+                    Visit(node.Object!);
+                    _sql.Append(")");
+                    return node;
+
+                case nameof(string.Trim):
+                    _sql.Append("TRIM(");
+                    Visit(node.Object!);
+                    _sql.Append(")");
+                    return node;
+
+                case nameof(string.TrimStart):
+                    _sql.Append("LTRIM(");
+                    Visit(node.Object!);
+                    _sql.Append(")");
+                    return node;
+
+                case nameof(string.TrimEnd):
+                    _sql.Append("RTRIM(");
+                    Visit(node.Object!);
+                    _sql.Append(")");
+                    return node;
+
                 case nameof(string.Contains):
                     Visit(node.Object!);
                     _sql.Append(_dialect == DatabaseDialect.PostgreSql ? " ILIKE " : " LIKE ");
@@ -132,14 +186,14 @@ internal class ExpressionToSqlVisitor<T> : ExpressionVisitor
         }
 
         // Handle null checks (x.Prop == null)
-        if (node.Method.Name == "op_Equality" && node.Arguments[1] is ConstantExpression constExpr && constExpr.Value == null)
+        if (node.Method.Name == "op_Equality" && node.Arguments.Count == 2 && node.Arguments[1] is ConstantExpression constExpr && constExpr.Value == null)
         {
             Visit(node.Arguments[0]);
             _sql.Append(" IS NULL");
             return node;
         }
 
-        if (node.Method.Name == "op_Inequality" && node.Arguments[1] is ConstantExpression constExpr2 && constExpr2.Value == null)
+        if (node.Method.Name == "op_Inequality" && node.Arguments.Count == 2 && node.Arguments[1] is ConstantExpression constExpr2 && constExpr2.Value == null)
         {
             Visit(node.Arguments[0]);
             _sql.Append(" IS NOT NULL");
@@ -180,6 +234,25 @@ internal class ExpressionToSqlVisitor<T> : ExpressionVisitor
         }
 
         throw new NotSupportedException($"Method call '{node.Method.Name}' is not supported in expressions.");
+    }
+
+    private static bool ContainsParameter(Expression? expr)
+    {
+        if (expr == null) return false;
+        var finder = new ParameterFinder();
+        finder.Visit(expr);
+        return finder.HasParameter;
+    }
+
+    private sealed class ParameterFinder : ExpressionVisitor
+    {
+        public bool HasParameter { get; private set; }
+
+        protected override Expression VisitParameter(ParameterExpression node)
+        {
+            HasParameter = true;
+            return node;
+        }
     }
 
     private string AddParameter(object? value, Type targetType)

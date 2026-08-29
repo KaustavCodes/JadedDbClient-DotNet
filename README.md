@@ -111,6 +111,61 @@ builder.Services.AddJadeDbService(
 
 ---
 
+### Initialization in Console Applications (.NET 6+)
+
+For .NET console applications (using top-level statements), you can use `Host.CreateDefaultBuilder` (via the `Microsoft.Extensions.Hosting` package) to set up configuration and initialize `JadeDbClient`:
+
+```csharp
+using JadeDbClient.Helpers;
+using JadeDbClient.Initialize;
+using JadeDbClient.Interfaces;
+using JadeDbTest;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
+// 1. Create the generic host builder
+var builder = Host.CreateDefaultBuilder(args);
+builder.ConfigureAppConfiguration((context, config) =>
+{
+    // Provide settings directly in code (or use appsettings.json)
+    config.AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["DatabaseType"] = "PostgreSQL",
+        ["ConnectionStrings:DbConnection"] = "Host=[Host Name];Database=[Database Name];Username=[DB User Name];Password=[Db Password];"
+    });
+});
+
+// 2. Register your services
+builder.ConfigureServices((context, services) =>
+{
+    // Add JadeDbService (It automatically reads from configuration)
+    services.AddJadeDbService();
+});
+
+// 3. Build the app
+var app = builder.Build();
+
+// 4. Request the database service directly and use it!
+var db = app.Services.GetRequiredService<IDatabaseService>();
+
+var qb = new QueryBuilder<TestTable>(db);
+var (sql, parameter) = qb.Where(t => t.UserName == "sam").BuildSelect();
+
+var data = await db.ExecuteQueryAsync<TestTable>(sql, parameter);
+
+if (data != null)
+{
+    foreach (var item in data)
+    {
+        Console.WriteLine($"Name is {item.UserName}");
+    }
+}
+
+```
+
+---
+
 ### Multiple Database Connections
 
 If your application needs to connect to **more than one database** at the same time, use `AddJadeDbNamedConnections` instead of `AddJadeDbService`.
@@ -1689,10 +1744,15 @@ var none = await new QueryBuilder<Product>(_dbService)
 |---|---|
 | `p.Price > 10` | `(Price > @p0)` |
 | `p.Name == "X"` | `(product_name = @p0)` |
-| `p.Name.Contains("X")` | `product_name LIKE @p0 ESCAPE '~'` |
+| `p.Name.ToLower() == "x"` | `(LOWER(product_name) = @p0)` |
+| `p.Name.ToUpper() == "X"` | `(UPPER(product_name) = @p0)` |
+| `p.Name.Trim() == "X"` | `(TRIM(product_name) = @p0)` (also `TrimStart()` → `LTRIM`, `TrimEnd()` → `RTRIM`) |
+| `p.Name.Length > 5` | `(LENGTH(product_name) > @p0)` (or `LEN(…)` on SQL Server) |
+| `p.Name.Contains("X")` | `product_name LIKE @p0 ESCAPE '~'` (or `ILIKE` on PostgreSQL) |
 | `p.Name.StartsWith("X")` | `product_name LIKE @p0 ESCAPE '~'` |
 | `p.Name.EndsWith("X")` | `product_name LIKE @p0 ESCAPE '~'` |
 | `p.CategoryId.In(ids)` | `category_id IN (@p0, @p1, …)` — empty list → `1=0` |
+| `p.Name == myVar.ToLower()` | Evaluates captured C# expressions to parameter value `@p0` |
 | `&&` / `\|\|` | `AND` / `OR` |
 | `!` | `NOT (…)` |
 
@@ -1739,7 +1799,7 @@ var none = await new QueryBuilder<Product>(_dbService)
 4. **UPDATE and DELETE require a WHERE clause** — omitting `.Where(…)` before `BuildUpdate` / `BuildDelete` throws `InvalidOperationException` to prevent accidental full-table modifications.
 5. **Column exclusion from writes** — `BuildInsert` and `BuildUpdate` only exclude a column when it is explicitly decorated with `[JadeDbColumn(IgnoreOnInsert = true)]`. There are no name-based conventions, so every schema — including those without a database-generated primary key — works without extra configuration.
 6. **JOIN result mapping** — Use `ToDynamicListAsync()` / `FirstOrDefaultDynamicAsync()` to receive JOIN results as `ExpandoObject` rows when no single model type represents the full result set. Access columns through `(IDictionary<string, object?>)row` for full AOT compatibility.
-7. **Complex expressions are not yet supported** — only simple member access, binary comparisons, string methods (`Contains`, `StartsWith`, `EndsWith`), and the `In` extension are translated. Unsupported expressions throw `NotSupportedException`.
+7. **Complex expressions** — member access, binary comparisons, string functions (`Contains`, `StartsWith`, `EndsWith`, `ToLower`, `ToUpper`, `Trim`, `TrimStart`, `TrimEnd`, `Length`), evaluated C# expressions/variables, and the `In` extension are translated. Unsupported expressions throw `NotSupportedException`.
 
 ---
 
