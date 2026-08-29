@@ -33,6 +33,7 @@ public class QueryBuilderExpressionTests
     [JadeDbTable("users")]
     public class User
     {
+        [JadeDbColumn("id")]
         public int Id { get; set; }
 
         [JadeDbColumn("user_name")]
@@ -127,5 +128,77 @@ public class QueryBuilderExpressionTests
         var paramList = parameters.ToList();
         paramList.Should().HaveCount(1);
         paramList[0].Value.Should().Be("alice");
+    }
+
+    [Fact]
+    public void BuildUpdate_WithWhereClause_GeneratesUniqueSequentialParameters()
+    {
+        var db = CreateMockService().Object;
+        var user = new User { Id = 1, UserName = "Jimmy", Email = "jimmy@test.com" };
+
+        var qb = new QueryBuilder<User>(db);
+        var (sql, parameters) = qb.Where(u => u.Id > 0).BuildUpdate(user);
+
+        // SQL should not have duplicate @p0 for SET and WHERE
+        sql.Should().Be("UPDATE users SET id = @p0, user_name = @p1, email_address = @p2 WHERE (id > @p3)");
+        var paramList = parameters.ToList();
+        paramList.Should().HaveCount(4);
+        paramList.Select(p => p.ParameterName).Should().OnlyHaveUniqueItems();
+        paramList[0].ParameterName.Should().Be("@p0");
+        paramList[0].Value.Should().Be(1);
+        paramList[1].ParameterName.Should().Be("@p1");
+        paramList[1].Value.Should().Be("Jimmy");
+        paramList[2].ParameterName.Should().Be("@p2");
+        paramList[2].Value.Should().Be("jimmy@test.com");
+        paramList[3].ParameterName.Should().Be("@p3");
+        paramList[3].Value.Should().Be(0);
+    }
+
+    [Fact]
+    public void BuildDelete_WithWhereClause_GeneratesCorrectParameters()
+    {
+        var db = CreateMockService().Object;
+        var qb = new QueryBuilder<User>(db);
+        var (sql, parameters) = qb.Where(u => u.Id == 42 && u.UserName.ToLower() == "test").BuildDelete();
+
+        sql.Should().Be("DELETE FROM users WHERE ((id = @p0) AND (LOWER(user_name) = @p1))");
+        var paramList = parameters.ToList();
+        paramList.Should().HaveCount(2);
+        paramList[0].ParameterName.Should().Be("@p0");
+        paramList[0].Value.Should().Be(42);
+        paramList[1].ParameterName.Should().Be("@p1");
+        paramList[1].Value.Should().Be("test");
+    }
+
+    [Fact]
+    public void BuildInsert_GeneratesCorrectParameters()
+    {
+        var db = CreateMockService().Object;
+        var user = new User { Id = 5, UserName = "Sarah", Email = "sarah@test.com" };
+        var qb = new QueryBuilder<User>(db);
+        var (sql, parameters) = qb.BuildInsert(user);
+
+        sql.Should().Be("INSERT INTO users (id, user_name, email_address) VALUES (@p0, @p1, @p2)");
+        var paramList = parameters.ToList();
+        paramList.Should().HaveCount(3);
+        paramList[0].Value.Should().Be(5);
+        paramList[1].Value.Should().Be("Sarah");
+        paramList[2].Value.Should().Be("sarah@test.com");
+    }
+
+    [Fact]
+    public void BuildMethods_CalledMultipleTimes_DoNotDuplicateParameters()
+    {
+        var db = CreateMockService().Object;
+        var user = new User { Id = 1, UserName = "Jimmy", Email = "jimmy@test.com" };
+
+        var qb = new QueryBuilder<User>(db).Where(u => u.Id > 0);
+
+        // Call BuildUpdate twice on the same builder
+        var (_, firstCallParams) = qb.BuildUpdate(user);
+        var (_, secondCallParams) = qb.BuildUpdate(user);
+
+        firstCallParams.ToList().Should().HaveCount(4);
+        secondCallParams.ToList().Should().HaveCount(4);
     }
 }

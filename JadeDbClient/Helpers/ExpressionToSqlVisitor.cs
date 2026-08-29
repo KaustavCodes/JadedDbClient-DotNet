@@ -20,11 +20,12 @@ internal class ExpressionToSqlVisitor<T> : ExpressionVisitor
     private readonly DatabaseDialect _dialect;
     private readonly string? _tablePrefix;
 
-    public ExpressionToSqlVisitor(IDatabaseService dbService, string? tablePrefix = null)
+    public ExpressionToSqlVisitor(IDatabaseService dbService, string? tablePrefix = null, int startParamIndex = 0)
     {
         _dbService = dbService ?? throw new ArgumentNullException(nameof(dbService));
         _dialect = dbService.Dialect;
         _tablePrefix = tablePrefix;
+        _paramCounter = startParamIndex;
     }
 
     public (string WhereClause, IReadOnlyList<IDbDataParameter> Parameters) Translate(Expression<Func<T, bool>>? predicate)

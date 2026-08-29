@@ -14,14 +14,14 @@
 - **Streamlined Query Execution**: Perform queries with ease using a common interface, regardless of the database system.
 - **Stored Procedure Support**: Execute stored procedures across different databases without rewriting code.
 - **Transaction Support**: Full support for database transactions with commit and rollback capabilities across all database types.
-- **🚀 Source Generator for AOT**: Automatically generates optimized mappers at compile-time with the `[JadeDbObject]` attribute - no manual registration needed!
+- **Source Generator for AOT**: Automatically generates optimized mappers at compile-time with the `[JadeDbObject]` attribute - no manual registration needed!
 - **Custom Column Mapping**: Use `[JadeDbColumn]` attribute to map database column names (e.g., snake_case) to C# property names (e.g., PascalCase).
 - **Exclude Columns from INSERT/UPDATE**: Mark database-managed columns (e.g. IDENTITY, AUTO_INCREMENT) with `[JadeDbColumn(IgnoreOnInsert = true)]` to automatically exclude them from INSERT and UPDATE statements.
 - **Identity Column for Returned Keys**: Mark the primary-key / identity column with `[JadeDbColumn(IsIdentity = true)]` so `BuildInsert(returnIdentity: true)` uses the correct column name in the database-specific RETURNING / OUTPUT clause. Falls back to `id` when no property is marked.
 - **Custom Table Mapping**: Use `[JadeDbTable]` attribute to map a C# class to a custom database table name.
 - **Native AOT Compatible**: Designed for .NET Native AOT applications with compile-time code generation (Note: Underlying database drivers may still have AOT limitations).
 - **Consistent API**: Provides a unified API to eliminate the headaches of switching databases.
-- **⚠️ Query Builder *(Beta)***: Fluent, type-safe SELECT / INSERT / UPDATE / DELETE / COUNT query construction — see [beta notice](#-query-builder-beta) below before using in production.
+- **Query Builder *(Beta)***: Fluent, type-safe SELECT / INSERT / UPDATE / DELETE / COUNT query construction — see [beta notice](#query-builder-beta) below before using in production.
 
 ## Installation
 
@@ -105,7 +105,7 @@ builder.Services.AddJadeDbService(
     });
 ```
 
-**⚠️ Important:** Logging is **disabled by default** for production performance. Enable only during development.
+**Important:** Logging is **disabled by default** for production performance. Enable only during development.
 
 **Backward Compatibility:** Existing code without logging configuration continues to work without any changes.
 
@@ -170,7 +170,7 @@ if (data != null)
 
 If your application needs to connect to **more than one database** at the same time, use `AddJadeDbNamedConnections` instead of `AddJadeDbService`.
 
-> **⚠️ Never hardcode connection strings in source code.** Always keep them in `appsettings.json`, environment variables, or a secrets manager (e.g. Azure Key Vault, AWS Secrets Manager).
+> **Important:** Never hardcode connection strings in source code. Always keep them in `appsettings.json`, environment variables, or a secrets manager (e.g. Azure Key Vault, AWS Secrets Manager).
 
 **When to use each method:**
 
@@ -553,8 +553,8 @@ public class TestController : ControllerBase
 
 ### Advanced: AOT-Compatible Mappers with Source Generator
 
-> **✨ Recommended Approach** 🎉  
-> JadeDbClient now includes a **Source Generator** that automatically creates optimized mappers at compile-time. Simply decorate your models with `[JadeDbObject]` and the mappers are generated for you!
+> **Recommended Approach**  
+> JadeDbClient includes a **Source Generator** that automatically creates optimized mappers at compile-time. Simply decorate your models with `[JadeDbObject]` and the mappers are generated for you!
 
 #### The Modern Way: Using `[JadeDbObject]` Attribute
 

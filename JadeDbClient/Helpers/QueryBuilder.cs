@@ -273,6 +273,7 @@ public class QueryBuilder<T> where T : class
     // ── Build SELECT ──
     public (string Sql, IEnumerable<IDbDataParameter> Parameters) BuildSelect()
     {
+        _parameters.Clear();
         var sb = new StringBuilder("SELECT ");
 
         var props = ReflectionHelper.GetMappableProperties(typeof(T));
@@ -311,6 +312,7 @@ public class QueryBuilder<T> where T : class
     // ── Build INSERT ──
     public (string Sql, IEnumerable<IDbDataParameter> Parameters) BuildInsert(T entity, bool returnIdentity = false)
     {
+        _parameters.Clear();
         var props = ReflectionHelper.GetMappableProperties(typeof(T))
             .Where(p => !ReflectionHelper.IsIgnoredOnInsert(p) && p.CanWrite)
             .ToArray();
@@ -350,6 +352,7 @@ public class QueryBuilder<T> where T : class
         if (_whereExpression == null)
             throw new InvalidOperationException("WHERE clause is required for UPDATE operations.");
 
+        _parameters.Clear();
         var props = ReflectionHelper.GetMappableProperties(typeof(T))
             .Where(p => !ReflectionHelper.IsIgnoredOnInsert(p) && p.CanWrite)
             .ToArray();
@@ -377,6 +380,7 @@ public class QueryBuilder<T> where T : class
         if (_whereExpression == null)
             throw new InvalidOperationException("WHERE clause is required for DELETE operations to prevent accidental full table deletion.");
 
+        _parameters.Clear();
         var sql = new StringBuilder($"DELETE FROM {_tableName}");
         AppendWhere(sql);
 
@@ -508,7 +512,8 @@ public class QueryBuilder<T> where T : class
         if (_whereExpression != null)
         {
             var tablePrefix = _joins.Count > 0 ? _tableName : null;
-            var visitor = new ExpressionToSqlVisitor<T>(_dbService, tablePrefix);
+            var startParamIndex = countParams.Count(p => p.ParameterName.StartsWith("@p"));
+            var visitor = new ExpressionToSqlVisitor<T>(_dbService, tablePrefix, startParamIndex);
             var (whereClause, whereParams) = visitor.Translate(_whereExpression);
 
             if (!string.IsNullOrWhiteSpace(whereClause))
@@ -528,7 +533,8 @@ public class QueryBuilder<T> where T : class
         // When joins are present, qualify WHERE column references with the main table
         // name to avoid ambiguity with same-named columns in joined tables.
         var tablePrefix = _joins.Count > 0 ? _tableName : null;
-        var visitor = new ExpressionToSqlVisitor<T>(_dbService, tablePrefix);
+        var startParamIndex = _parameters.Count(p => p.ParameterName.StartsWith("@p"));
+        var visitor = new ExpressionToSqlVisitor<T>(_dbService, tablePrefix, startParamIndex);
         var (whereClause, whereParams) = visitor.Translate(_whereExpression);
 
         if (!string.IsNullOrWhiteSpace(whereClause))
