@@ -16,14 +16,27 @@ internal class ExpressionToSqlVisitor<T> : ExpressionVisitor
     private readonly StringBuilder _sql = new();
     private readonly List<IDbDataParameter> _parameters = new();
     private int _paramCounter = 0;
-    private readonly IDatabaseService _dbService;
+    private readonly Func<string, object, DbType, ParameterDirection, int, IDbDataParameter> _parameterFactory;
     private readonly DatabaseDialect _dialect;
     private readonly string? _tablePrefix;
 
     public ExpressionToSqlVisitor(IDatabaseService dbService, string? tablePrefix = null, int startParamIndex = 0)
+        : this(
+            (dbService ?? throw new ArgumentNullException(nameof(dbService))).Dialect,
+            (name, val, type, dir, size) => dbService.GetParameter(name, val, type, dir, size),
+            tablePrefix,
+            startParamIndex)
     {
-        _dbService = dbService ?? throw new ArgumentNullException(nameof(dbService));
-        _dialect = dbService.Dialect;
+    }
+
+    public ExpressionToSqlVisitor(
+        DatabaseDialect dialect,
+        Func<string, object, DbType, ParameterDirection, int, IDbDataParameter> parameterFactory,
+        string? tablePrefix = null,
+        int startParamIndex = 0)
+    {
+        _dialect = dialect;
+        _parameterFactory = parameterFactory ?? throw new ArgumentNullException(nameof(parameterFactory));
         _tablePrefix = tablePrefix;
         _paramCounter = startParamIndex;
     }
@@ -224,7 +237,7 @@ internal class ExpressionToSqlVisitor<T> : ExpressionVisitor
             {
                 var paramName = $"@p{_paramCounter++}";
                 var dbType = InferDbType(elementType);
-                var param = _dbService.GetParameter(paramName, val ?? DBNull.Value, dbType);
+                var param = _parameterFactory(paramName, val ?? DBNull.Value, dbType, ParameterDirection.Input, 0);
                 _parameters.Add(param);
                 paramNames.Add(paramName);
             }
@@ -262,7 +275,7 @@ internal class ExpressionToSqlVisitor<T> : ExpressionVisitor
         _sql.Append(paramName);
 
         var dbType = InferDbType(targetType);
-        var param = _dbService.GetParameter(paramName, value ?? DBNull.Value, dbType);
+        var param = _parameterFactory(paramName, value ?? DBNull.Value, dbType, ParameterDirection.Input, 0);
         _parameters.Add(param);
 
         return paramName;

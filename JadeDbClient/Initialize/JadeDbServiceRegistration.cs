@@ -15,6 +15,11 @@ public static class JadeDbServiceRegistration
         public bool LogExecutedQuery { get; set; } = false;
 
         public bool PluralizeTableName { get; set; } = false;
+
+        /// <summary>
+        /// Gets or sets the DI service lifetime for IDatabaseService registrations. Defaults to <see cref="ServiceLifetime.Singleton"/>.
+        /// </summary>
+        public ServiceLifetime Lifetime { get; set; } = ServiceLifetime.Singleton;
     }
 
     public static void AddJadeDbService(this IServiceCollection services, Action<JadeDbMapperOptions>? configure = null, Action<JadeDbServiceOptions>? serviceOptionsConfigure = null)
@@ -30,11 +35,11 @@ public static class JadeDbServiceRegistration
         // Register JadeDbServiceOptions as a singleton
         services.AddSingleton(serviceOptions);
 
-        // Setup the database
+        // Setup the database configuration service
         services.AddSingleton<DatabaseConfigurationService>();
 
-        // Register the database service using a factory
-        services.AddSingleton<IDatabaseService>(serviceProvider =>
+        // Factory to create IDatabaseService
+        IDatabaseService Factory(IServiceProvider serviceProvider)
         {
             var configuration = serviceProvider.GetRequiredService<IConfiguration>();
             var databaseConfigService = serviceProvider.GetRequiredService<DatabaseConfigurationService>();
@@ -42,10 +47,8 @@ public static class JadeDbServiceRegistration
             var dbServiceOptions = serviceProvider.GetRequiredService<JadeDbServiceOptions>();
             var databaseType = databaseConfigService.GetDatabaseType();
 
-            // Example: log the mode if logging is enabled
             if (dbServiceOptions.EnableLogging)
             {
-                //Console.WriteLine($"[JadeDbClient] DatabaseType: {databaseType}, LicenseType: {licenseType}");
                 Console.WriteLine($"[JadeDbClient] DatabaseType: {databaseType}");
             }
 
@@ -56,7 +59,10 @@ public static class JadeDbServiceRegistration
                 "PostgreSQL" => (IDatabaseService)new PostgreSqlDbService(configuration, mapperOptions, dbServiceOptions),
                 _ => throw new Exception("Unsupported database type"),
             };
-        });
+        }
+
+        // Register the database service using the configured lifetime
+        services.Add(new ServiceDescriptor(typeof(IDatabaseService), Factory, serviceOptions.Lifetime));
     }
 
     /// <summary>

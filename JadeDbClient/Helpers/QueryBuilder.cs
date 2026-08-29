@@ -16,9 +16,12 @@ namespace JadeDbClient.Helpers;
 
 public class QueryBuilder<T> where T : class
 {
-    private readonly IDatabaseService _dbService;
+    private readonly IDatabaseService? _dbService;
+    private readonly IDatabaseSession? _session;
     private readonly DatabaseDialect _dialect;
     private readonly string _tableName;
+    private readonly bool _pluralizeTableNames;
+    private readonly Func<string, object, DbType, ParameterDirection, int, IDbDataParameter> _parameterFactory;
 
     private string[]? _selectColumns;
     // True when _selectColumns came from an expression or from the default (all cols);
@@ -37,7 +40,18 @@ public class QueryBuilder<T> where T : class
     {
         _dbService = dbService ?? throw new ArgumentNullException(nameof(dbService));
         _dialect = dbService.Dialect;
-        _tableName = ReflectionHelper.GetTableName(typeof(T), dbService.PluralizeTableNames);
+        _pluralizeTableNames = dbService.PluralizeTableNames;
+        _tableName = ReflectionHelper.GetTableName(typeof(T), _pluralizeTableNames);
+        _parameterFactory = (name, val, type, dir, size) => dbService.GetParameter(name, val, type, dir, size);
+    }
+
+    public QueryBuilder(IDatabaseSession session)
+    {
+        _session = session ?? throw new ArgumentNullException(nameof(session));
+        _dialect = session.Dialect;
+        _pluralizeTableNames = session.PluralizeTableNames;
+        _tableName = ReflectionHelper.GetTableName(typeof(T), _pluralizeTableNames);
+        _parameterFactory = (name, val, type, dir, size) => session.GetParameter(name, val, type, dir, size);
     }
 
     // ── Fluent methods ──
@@ -86,7 +100,7 @@ public class QueryBuilder<T> where T : class
     {
         if (selector == null) throw new ArgumentNullException(nameof(selector));
 
-        var joinTableName = ReflectionHelper.GetTableName(typeof(TJoin), _dbService.PluralizeTableNames);
+        var joinTableName = ReflectionHelper.GetTableName(typeof(TJoin), _pluralizeTableNames);
         _selectColumns = ExtractColumnsFromJoinSelector(selector, _tableName, joinTableName);
         // Columns are already fully qualified (table.column) – no further qualification needed.
         _selectColumnsNeedQualification = false;
@@ -117,7 +131,7 @@ public class QueryBuilder<T> where T : class
     {
         if (configure == null) throw new ArgumentNullException(nameof(configure));
 
-        var selector = new JoinColumnSelector(_dbService);
+        var selector = new JoinColumnSelector(_pluralizeTableNames);
         configure(selector);
 
         if (selector.Columns.Count == 0)
@@ -232,12 +246,12 @@ public class QueryBuilder<T> where T : class
     {
         if (on == null) throw new ArgumentNullException(nameof(on));
 
-        var joinTableName = ReflectionHelper.GetTableName(typeof(TJoin), _dbService.PluralizeTableNames);
+        var joinTableName = ReflectionHelper.GetTableName(typeof(TJoin), _pluralizeTableNames);
         var leftParam = on.Parameters[0];
         var rightParam = on.Parameters[1];
 
         var visitor = new JoinExpressionVisitor(
-            _dbService,
+            _parameterFactory,
             leftAlias: _tableName,
             rightAlias: joinTableName,
             leftParamName: leftParam.Name!,
@@ -326,7 +340,7 @@ public class QueryBuilder<T> where T : class
             var paramName = $"@p{paramIndex++}";
             paramPlaceholders.Add(paramName);
             var value = prop.GetValue(entity);
-            _parameters.Add(_dbService.GetParameter(paramName, value ?? DBNull.Value, InferDbType(prop.PropertyType)));
+            _parameters.Add(_parameterFactory(paramName, value ?? DBNull.Value, InferDbType(prop.PropertyType), ParameterDirection.Input, 0));
         }
 
         var sql = new StringBuilder($"INSERT INTO {_tableName} ({string.Join(", ", columns)}) VALUES ({string.Join(", ", paramPlaceholders)})");
@@ -365,7 +379,7 @@ public class QueryBuilder<T> where T : class
             var paramName = $"@p{paramIndex++}";
             setClauses.Add($"{ReflectionHelper.GetColumnName(prop)} = {paramName}");
             var value = prop.GetValue(entity);
-            _parameters.Add(_dbService.GetParameter(paramName, value ?? DBNull.Value, InferDbType(prop.PropertyType)));
+            _parameters.Add(_parameterFactory(paramName, value ?? DBNull.Value, InferDbType(prop.PropertyType), ParameterDirection.Input, 0));
         }
 
         var sql = new StringBuilder($"UPDATE {_tableName} SET {string.Join(", ", setClauses)}");
@@ -410,7 +424,9 @@ public class QueryBuilder<T> where T : class
     TResult>() where TResult : class
     {
         var (sql, parameters) = BuildSelect();
-        return await _dbService.ExecuteQueryAsync<TResult>(sql, parameters);
+        if (_session != null)
+            return await _session.ExecuteQueryAsync<TResult>(sql, parameters);
+        return await _dbService!.ExecuteQueryAsync<TResult>(sql, parameters);
     }
 
     /// <summary>
@@ -441,7 +457,9 @@ public class QueryBuilder<T> where T : class
     public async Task<IEnumerable<dynamic>> ToDynamicListAsync()
     {
         var (sql, parameters) = BuildSelect();
-        return await _dbService.ExecuteQueryDynamicAsync(sql, parameters);
+        if (_session != null)
+            return await _session.ExecuteQueryDynamicAsync(sql, parameters);
+        return await _dbService!.ExecuteQueryDynamicAsync(sql, parameters);
     }
 
     /// <summary>
@@ -458,7 +476,9 @@ public class QueryBuilder<T> where T : class
     TResult>() where TResult : class
     {
         var (sql, parameters) = BuildSelect();
-        return await _dbService.ExecuteQueryFirstRowAsync<TResult>(sql, parameters);
+        if (_session != null)
+            return await _session.ExecuteQueryFirstRowAsync<TResult>(sql, parameters);
+        return await _dbService!.ExecuteQueryFirstRowAsync<TResult>(sql, parameters);
     }
 
     /// <summary>
@@ -481,7 +501,9 @@ public class QueryBuilder<T> where T : class
     public async Task<dynamic?> FirstOrDefaultDynamicAsync()
     {
         var (sql, parameters) = BuildSelect();
-        return await _dbService.ExecuteQueryFirstRowDynamicAsync(sql, parameters);
+        if (_session != null)
+            return await _session.ExecuteQueryFirstRowDynamicAsync(sql, parameters);
+        return await _dbService!.ExecuteQueryFirstRowDynamicAsync(sql, parameters);
     }
     /// <summary>
     /// Builds and executes a <c>SELECT COUNT(*)</c> query, respecting any
@@ -513,7 +535,7 @@ public class QueryBuilder<T> where T : class
         {
             var tablePrefix = _joins.Count > 0 ? _tableName : null;
             var startParamIndex = countParams.Count(p => p.ParameterName.StartsWith("@p"));
-            var visitor = new ExpressionToSqlVisitor<T>(_dbService, tablePrefix, startParamIndex);
+            var visitor = new ExpressionToSqlVisitor<T>(_dialect, _parameterFactory, tablePrefix, startParamIndex);
             var (whereClause, whereParams) = visitor.Translate(_whereExpression);
 
             if (!string.IsNullOrWhiteSpace(whereClause))
@@ -523,8 +545,9 @@ public class QueryBuilder<T> where T : class
             }
         }
 
-        var result = await _dbService.ExecuteScalar<long>(sb.ToString(), countParams);
-        return result;
+        if (_session != null)
+            return await _session.ExecuteScalar<long>(sb.ToString(), countParams);
+        return await _dbService!.ExecuteScalar<long>(sb.ToString(), countParams);
     }
     private void AppendWhere(StringBuilder sb)
     {
@@ -534,7 +557,7 @@ public class QueryBuilder<T> where T : class
         // name to avoid ambiguity with same-named columns in joined tables.
         var tablePrefix = _joins.Count > 0 ? _tableName : null;
         var startParamIndex = _parameters.Count(p => p.ParameterName.StartsWith("@p"));
-        var visitor = new ExpressionToSqlVisitor<T>(_dbService, tablePrefix, startParamIndex);
+        var visitor = new ExpressionToSqlVisitor<T>(_dialect, _parameterFactory, tablePrefix, startParamIndex);
         var (whereClause, whereParams) = visitor.Translate(_whereExpression);
 
         if (!string.IsNullOrWhiteSpace(whereClause))

@@ -7,6 +7,9 @@ using System.Diagnostics.CodeAnalysis;
 using JadeDbClient.Helpers;
 using System.Diagnostics;
 using JadeDbClient.Enums;
+using JadeDbClient.Services;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace JadeDbClient;
 
@@ -96,6 +99,36 @@ public class MySqlDbService : IDatabaseService
         }
     }
 
+    /// <inheritdoc/>
+    public async Task<IDatabaseSession> OpenSessionAsync(CancellationToken cancellationToken = default)
+    {
+        var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        return new DatabaseSession(
+            connection,
+            Dialect,
+            PluralizeTableNames,
+            _mapper,
+            _mapperOptions,
+            _serviceOptions,
+            (name, value, dbType, direction, size) => GetParameter(name, value, dbType, direction, size));
+    }
+
+    /// <inheritdoc/>
+    public IDatabaseSession OpenSession()
+    {
+        var connection = new MySqlConnection(_connectionString);
+        connection.Open();
+        return new DatabaseSession(
+            connection,
+            Dialect,
+            PluralizeTableNames,
+            _mapper,
+            _mapperOptions,
+            _serviceOptions,
+            (name, value, dbType, direction, size) => GetParameter(name, value, dbType, direction, size));
+    }
+
     /// <summary>
     /// Creates a new instance of an <see cref="IDbDataParameter"/> for MySql.
     /// </summary>
@@ -145,9 +178,19 @@ public class MySqlDbService : IDatabaseService
 
                 using (var reader = await command.ExecuteReaderAsync())
                 {
-                    while (await reader.ReadAsync())
+                    if (_mapperOptions.TryGetMapper<T>(out var mapper) && mapper != null)
                     {
-                        results.Add(_mapper.MapObject<T>(reader));
+                        while (await reader.ReadAsync())
+                        {
+                            results.Add(mapper(reader));
+                        }
+                    }
+                    else
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            results.Add(_mapper.MapObject<T>(reader));
+                        }
                     }
                 }
             }
@@ -189,7 +232,12 @@ public class MySqlDbService : IDatabaseService
                 {
                     if (await reader.ReadAsync())
                     {
-                        var result = _mapper.MapObject<T>(reader);
+                        T? result;
+                        if (_mapperOptions.TryGetMapper<T>(out var mapper) && mapper != null)
+                            result = mapper(reader);
+                        else
+                            result = _mapper.MapObject<T>(reader);
+
                         if (_serviceOptions.EnableLogging)
                         {
                             LogQueryExecution(query, (long)Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds);
@@ -346,9 +394,19 @@ public class MySqlDbService : IDatabaseService
 
                 using (var reader = await command.ExecuteReaderAsync())
                 {
-                    while (await reader.ReadAsync())
+                    if (_mapperOptions.TryGetMapper<T>(out var mapper) && mapper != null)
                     {
-                        results.Add(_mapper.MapObject<T>(reader));
+                        while (await reader.ReadAsync())
+                        {
+                            results.Add(mapper(reader));
+                        }
+                    }
+                    else
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            results.Add(_mapper.MapObject<T>(reader));
+                        }
                     }
                 }
             }

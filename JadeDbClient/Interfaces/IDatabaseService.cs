@@ -186,4 +186,18 @@ public interface IDatabaseService : IDisposable
     /// </summary>
     /// <param name="transaction">The transaction to roll back.</param>
     void RollbackTransaction(IDbTransaction transaction);
+
+    /// <summary>
+    /// Opens an active, single-connection database session for executing multiple queries efficiently.
+    /// Dispose or async dispose the returned <see cref="IDatabaseSession"/> when finished to return the connection to the pool.
+    /// </summary>
+    /// <param name="cancellationToken">Optional cancellation token.</param>
+    /// <returns>An open <see cref="IDatabaseSession"/>.</returns>
+    Task<IDatabaseSession> OpenSessionAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Synchronously opens an active, single-connection database session for executing multiple queries efficiently.
+    /// </summary>
+    /// <returns>An open <see cref="IDatabaseSession"/>.</returns>
+    IDatabaseSession OpenSession();
 }

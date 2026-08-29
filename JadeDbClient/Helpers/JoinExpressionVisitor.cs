@@ -18,7 +18,7 @@ internal sealed class JoinExpressionVisitor : ExpressionVisitor
     private readonly StringBuilder _sql = new();
     private readonly List<IDbDataParameter> _parameters = new();
     private int _paramCounter = 0;
-    private readonly IDatabaseService _dbService;
+    private readonly Func<string, object, DbType, ParameterDirection, int, IDbDataParameter> _parameterFactory;
     private readonly string _leftAlias;
     private readonly string _rightAlias;
     private readonly string _leftParamName;
@@ -30,8 +30,23 @@ internal sealed class JoinExpressionVisitor : ExpressionVisitor
         string rightAlias,
         string leftParamName,
         string rightParamName)
+        : this(
+            (name, val, type, dir, size) => (dbService ?? throw new ArgumentNullException(nameof(dbService))).GetParameter(name, val, type, dir, size),
+            leftAlias,
+            rightAlias,
+            leftParamName,
+            rightParamName)
     {
-        _dbService = dbService ?? throw new ArgumentNullException(nameof(dbService));
+    }
+
+    internal JoinExpressionVisitor(
+        Func<string, object, DbType, ParameterDirection, int, IDbDataParameter> parameterFactory,
+        string leftAlias,
+        string rightAlias,
+        string leftParamName,
+        string rightParamName)
+    {
+        _parameterFactory = parameterFactory ?? throw new ArgumentNullException(nameof(parameterFactory));
         _leftAlias = leftAlias;
         _rightAlias = rightAlias;
         _leftParamName = leftParamName;
@@ -113,7 +128,7 @@ internal sealed class JoinExpressionVisitor : ExpressionVisitor
         else if (type == typeof(string))      dbType = DbType.String;
         else if (type == typeof(byte[]))      dbType = DbType.Binary;
 
-        var param = _dbService.GetParameter(paramName, value ?? DBNull.Value, dbType);
+        var param = _parameterFactory(paramName, value ?? DBNull.Value, dbType, ParameterDirection.Input, 0);
         _parameters.Add(param);
     }
 }

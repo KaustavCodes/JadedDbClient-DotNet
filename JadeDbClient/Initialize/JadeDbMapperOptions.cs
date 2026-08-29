@@ -6,13 +6,15 @@ namespace JadeDbClient.Initialize;
 
 public class JadeDbMapperOptions
 {
-    // 🚀 The static "Bridge": Source Generator drops mappers here at startup
+    // Static bridge: Source Generator drops mappers here at startup
     internal static readonly Dictionary<Type, Func<IDataReader, object>> GlobalMappers = new();
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, Delegate> GlobalTypedMappers = new();
 
-    // 🚀 Property accessors for bulk insert operations (reflection-free)
+    // Property accessors for bulk insert operations (reflection-free)
     internal static readonly Dictionary<Type, BulkInsertAccessor> GlobalBulkInsertAccessors = new();
 
     internal readonly Dictionary<Type, Func<IDataReader, object>> Mappers = new();
+    internal readonly System.Collections.Concurrent.ConcurrentDictionary<Type, Delegate> _typedMappers = new();
 
     public JadeDbMapperOptions()
     {
@@ -21,11 +23,16 @@ public class JadeDbMapperOptions
         {
             Mappers[mapper.Key] = mapper.Value;
         }
+        foreach (var kvp in GlobalTypedMappers)
+        {
+            _typedMappers[kvp.Key] = kvp.Value;
+        }
     }
 
     public void RegisterMapper<T>(Func<IDataReader, T> mapper) where T : class
     {
         Mappers[typeof(T)] = (reader) => mapper(reader);
+        _typedMappers[typeof(T)] = mapper;
     }
 
     // Public method for testing - checks if mapper exists
@@ -48,13 +55,27 @@ public class JadeDbMapperOptions
     public static void RegisterGlobalMapper<T>(Func<IDataReader, T> mapper) where T : class
     {
         GlobalMappers[typeof(T)] = (reader) => mapper(reader);
+        GlobalTypedMappers[typeof(T)] = mapper;
     }
 
     internal bool TryGetMapper<T>(out Func<IDataReader, T>? mapper)
     {
+        if (_typedMappers.TryGetValue(typeof(T), out var del) && del is Func<IDataReader, T> typed)
+        {
+            mapper = typed;
+            return true;
+        }
+        if (GlobalTypedMappers.TryGetValue(typeof(T), out var gDel) && gDel is Func<IDataReader, T> gTyped)
+        {
+            _typedMappers[typeof(T)] = gTyped;
+            mapper = gTyped;
+            return true;
+        }
         if (Mappers.TryGetValue(typeof(T), out var func))
         {
-            mapper = (reader) => (T)func(reader);
+            Func<IDataReader, T> created = (reader) => (T)func(reader);
+            _typedMappers[typeof(T)] = created;
+            mapper = created;
             return true;
         }
         mapper = null;

@@ -25,12 +25,17 @@ namespace JadeDbClient.Helpers;
 /// </summary>
 public sealed class JoinColumnSelector
 {
-    private readonly IDatabaseService _dbService;
+    private readonly bool _pluralizeTableNames;
     internal List<string> Columns { get; } = new();
 
     internal JoinColumnSelector(IDatabaseService dbService)
+        : this((dbService ?? throw new ArgumentNullException(nameof(dbService))).PluralizeTableNames)
     {
-        _dbService = dbService ?? throw new ArgumentNullException(nameof(dbService));
+    }
+
+    internal JoinColumnSelector(bool pluralizeTableNames)
+    {
+        _pluralizeTableNames = pluralizeTableNames;
     }
 
     /// <summary>
@@ -47,7 +52,7 @@ public sealed class JoinColumnSelector
     {
         if (selector == null) throw new ArgumentNullException(nameof(selector));
 
-        var tableName = ReflectionHelper.GetTableName(typeof(TTable), _dbService.PluralizeTableNames);
+        var tableName = ReflectionHelper.GetTableName(typeof(TTable), _pluralizeTableNames);
         var param = selector.Parameters[0];
 
         string QualifyMember(MemberExpression memberExpr)
