@@ -111,6 +111,24 @@ builder.Services.AddJadeDbService(
 
 ---
 
+### High-Performance Connection Sessions (`IDatabaseSession`)
+
+By default, `IDatabaseService` is registered as a thread-safe Singleton that manages pooled connections per operation. For high-throughput hot paths or multi-query workflows requiring a single persistent connection with prepared command caching, open a dedicated session:
+
+```csharp
+// Open an active, single-connection session
+await using var session = await db.OpenSessionAsync();
+
+// Execute queries directly over the session with prepared command reuse
+var user = await session.ExecuteQueryFirstRowAsync<User>("SELECT id, name FROM users WHERE id = @p0", parameters);
+
+// Or use QueryBuilder directly with the session
+var qb = new QueryBuilder<User>(session);
+var activeUsers = await qb.Where(u => u.IsActive).ToListAsync();
+```
+
+---
+
 ### Initialization in Console Applications (.NET 6+)
 
 For .NET console applications (using top-level statements), you can use `Host.CreateDefaultBuilder` (via the `Microsoft.Extensions.Hosting` package) to set up configuration and initialize `JadeDbClient`:
